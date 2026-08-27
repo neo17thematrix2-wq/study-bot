@@ -1,8 +1,26 @@
 import telebot
 from telebot import types
+from flask import Flask
+from threading import Thread
 
 # ---------------------------------------------------------
-# 1. التكوين الأساسي
+# سيرفر وهمي لإبقاء Render شغال 24/7 مجاناً (Web Service)
+# ---------------------------------------------------------
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run_web():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run_web)
+    t.start()
+
+# ---------------------------------------------------------
+# 1. التكوين الأساسي للبوت
 # ---------------------------------------------------------
 BOT_TOKEN = "8940117200:AAEruJBr6mRLuXxdZPEFD8SHuj_FpNc6Lt4"
 ADMIN_ID = 8744592769
@@ -67,6 +85,9 @@ def send_welcome(message):
     )
     bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown", reply_markup=main_menu_keyboard())
 
+# ---------------------------------------------------------
+# 4. استقبال الرسائل المجهولة وترحيلها للآدمن (ميزة القديم)
+# ---------------------------------------------------------
 @bot.message_handler(func=lambda message: True)
 def handle_menu_click(message):
     if message.text == "🎙️ تسجِيلات صَوتِيّة":
@@ -78,11 +99,16 @@ def handle_menu_click(message):
     elif message.text == "📚 امتِحانات سابِقَة":
         bot.send_message(message.chat.id, "📚 **قسم الامتحانات السابقة**\nاختر المادة المطلوبة:", parse_mode="Markdown", reply_markup=subjects_keyboard("ex"))
     elif message.text == "💬 تَواصَل مَعِي (مَجْهُول)":
-        msg = f"💬 **تواصل مجهول:**\n\nإذا كان لديك أي سؤال أو استفسار، يمكنك إرساله بحرية عبر الرابط أدناه:\n\n🔗 [اضغط هنا لإرسال رسالتك]({ANONYMOUS_LINK})"
+        msg = f"💬 **تواصل مجهول:**\n\nاكتب رسالتك الآن مباشرة وسأقوم باستلامها بدون معرفة هويتك، أو يمكنك استخدام الرابط:\n🔗 [موقع التواصل المجهول]({ANONYMOUS_LINK})"
         bot.send_message(message.chat.id, msg, parse_mode="Markdown", disable_web_page_preview=True)
+    else:
+        # إذا كانت أي رسالة عادية، تحول تلقائياً للآدمن كرسالة مجهولة
+        if message.chat.id != ADMIN_ID:
+            bot.send_message(ADMIN_ID, f"📩 **رسالة مجهولة جديدة:**\n\n{message.text}")
+            bot.reply_to(message, "تم إرسال رسالتك بنجاح وبسرية تامة! 📥")
 
 # ---------------------------------------------------------
-# 4. معالجة الضغط على الأزرار الفرعية
+# 5. معالجة الضغط على الأزرار الفرعية
 # ---------------------------------------------------------
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
@@ -91,7 +117,6 @@ def handle_callback(call):
     if call.data == "go_main":
         bot.edit_message_text("تمت العودة للقائمة الرئيسية.", chat_id, call.message.message_id)
     
-    # 🎙️ التسجيلات الصوتية
     elif call.data.startswith("aud_sub_"):
         subject = call.data.split("_")[2]
         bot.edit_message_text(f"🎧 **مادة {subject}** - اختر المحاضرة الصوتية:", chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=lectures_keyboard("aud", subject))
@@ -99,7 +124,6 @@ def handle_callback(call):
         _, _, subject, lec = call.data.split("_")
         bot.answer_callback_query(call.id, f"جارٍ جلب {lec} لمادة {subject}...")
 
-    # 📝 التسجيلات المكتوبة
     elif call.data.startswith("wrt_sub_"):
         subject = call.data.split("_")[2]
         bot.edit_message_text(f"📝 **مادة {subject}** - اختر المحاضرة المكتوبة:", chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=lectures_keyboard("wrt", subject))
@@ -107,7 +131,6 @@ def handle_callback(call):
         _, _, subject, lec = call.data.split("_")
         bot.answer_callback_query(call.id, f"جارٍ جلب صور {lec} لمادة {subject}...")
 
-    # 📌 قسم ملخصي
     elif call.data.startswith("sum_sub_"):
         subject = call.data.split("_")[2]
         bot.edit_message_text(f"📌 **ملخصات مادة {subject}** - اختر الملخص المطلوب:", chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=summary_keyboard(subject))
@@ -115,7 +138,6 @@ def handle_callback(call):
         _, _, subject, item = call.data.split("_")
         bot.answer_callback_query(call.id, f"جارٍ جلب {item} لمادة {subject}...")
 
-    # 📚 الامتحانات السابقة
     elif call.data.startswith("ex_sub_"):
         subject = call.data.split("_")[2]
         bot.edit_message_text(f"📚 **مادة {subject}** - اختر السنة:", chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=years_keyboard(subject))
@@ -123,7 +145,6 @@ def handle_callback(call):
         _, _, subject, year = call.data.split("_")
         bot.answer_callback_query(call.id, f"جارٍ جلب امتحان {subject} لسنة {year}...")
 
-    # أزرار الرجوع
     elif call.data == "back_to_aud":
         bot.edit_message_text("🎙️ **قسم التسجيلات الصوتية**\nاختر المادة المطلوبة:", chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=subjects_keyboard("aud"))
     elif call.data == "back_to_wrt":
@@ -134,8 +155,9 @@ def handle_callback(call):
         bot.edit_message_text("📚 **قسم الامتحانات السابقة**\nاختر المادة المطلوبة:", chat_id, call.message.message_id, parse_mode="Markdown", reply_markup=subjects_keyboard("ex"))
 
 # ---------------------------------------------------------
-# 5. تشغيل البوت
+# 6. تشغيل السيرفر والبوت
 # ---------------------------------------------------------
 if __name__ == "__main__":
+    keep_alive()
     print("🤖 البوت يعمل بنجاح...")
     bot.infinity_polling()
