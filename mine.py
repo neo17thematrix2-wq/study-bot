@@ -22,7 +22,7 @@ def keep_alive():
 # ---------------------------------------------------------
 # 1. التكوين الأساسي للبوت
 # ---------------------------------------------------------
-BOT_TOKEN = "8940117200:AAEruJBr6mRLuXxdZPEFD8SHuj_FpNc6Lt4"
+BOT_TOKEN = "8940117200:AAG0vZTZrUQvcm4qCzQgyJTuxn_OEo0-X44"
 ADMIN_ID = 8744592769
 ANONYMOUS_LINK = "https://sayat.me/your_account"
 
