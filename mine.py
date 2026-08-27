@@ -98,9 +98,8 @@ def handle_menu_click(message):
         bot.send_message(message.chat.id, "📌 **قسم ملخصي الخاص**\nاختر المادة المطلوبة:", parse_mode="Markdown", reply_markup=subjects_keyboard("sum"))
     elif message.text == "📚 امتِحانات سابِقَة":
         bot.send_message(message.chat.id, "📚 **قسم الامتحانات السابقة**\nاختر المادة المطلوبة:", parse_mode="Markdown", reply_markup=subjects_keyboard("ex"))
-    elif message.text == "💬 تَواصَل مَعِي (مَجْهُول)":
-        msg = f"💬 **تواصل مجهول:**\n\nاكتب رسالتك الآن مباشرة وسأقوم باستلامها بدون معرفة هويتك، أو يمكنك استخدام الرابط:\n🔗 [موقع التواصل المجهول]({ANONYMOUS_LINK})"
-        bot.send_message(message.chat.id, msg, parse_mode="Markdown", disable_web_page_preview=True)
+    elif message.text == "💬 تواصل معي (مجهول)":
+    bot.send_message(message.chat.id, "رابط التواصل المجهول:\nhttps://t.me/majho1bot")
     else:
         # إذا كانت أي رسالة عادية، تحول تلقائياً للآدمن كرسالة مجهولة
         if message.chat.id != ADMIN_ID:
