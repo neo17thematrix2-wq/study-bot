@@ -98,11 +98,11 @@ def handle_menu_click(message):
         bot.send_message(message.chat.id, "📌 **قسم ملخصي الخاص**\nاختر المادة المطلوبة:", parse_mode="Markdown", reply_markup=subjects_keyboard("sum"))
     elif message.text == "📚 امتِحانات سابِقَة":
         bot.send_message(message.chat.id, "📚 **قسم الامتحانات السابقة**\nاختر المادة المطلوبة:", parse_mode="Markdown", reply_markup=subjects_keyboard("ex"))
-  elif "مجهول" in message.text:
-    markup = telebot.types.InlineKeyboardMarkup()
-    btn = telebot.types.InlineKeyboardButton("اضغط هنا للتواصل المجهول 💬", url="https://t.me/majho1bot")
-    markup.add(btn)
-    bot.send_message(message.chat.id, "اضغط على الزر أدناه لبدء المحادثة المجهولة:", reply_markup=markup)
+ elif "مجهول" in message.text:
+        markup = telebot.types.InlineKeyboardMarkup()
+        btn = telebot.types.InlineKeyboardButton("اضغط هنا للتواصل المجهول 💬", url="https://t.me/majho1bot")
+        markup.add(btn)
+        bot.send_message(message.chat.id, "اضغط على الزر أدناه لبدء المحادثة المجهولة:", reply_markup=markup)
         # إذا كانت أي رسالة عادية، تحول تلقائياً للآدمن كرسالة مجهولة
         if message.chat.id != ADMIN_ID:
             bot.send_message(ADMIN_ID, f"📩 **رسالة مجهولة جديدة:**\n\n{message.text}")
