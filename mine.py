@@ -27,7 +27,7 @@ init_db()
 
 SUBJECTS = ["مدخل قانون", "قانون دستوري", "قانون جنائي", "قانون مدني", "قانون إداري", "قانون دولي"]
 
-# الأزرار الرئيسية (تظهر لوحة التحكم للأدمن فقط)
+# الأزرار الرئيسية
 def main_keyboard(user_id):
     markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add(
@@ -37,7 +37,7 @@ def main_keyboard(user_id):
         KeyboardButton("امتحانات سابقة"),
         KeyboardButton("تواصل معي (مجهول)")
     )
-    if user_id == ADMIN_ID:
+    if int(user_id) == ADMIN_ID:
         markup.add(KeyboardButton("لوحة التحكم ⚙️"))
     return markup
 
@@ -80,9 +80,35 @@ def send_welcome(message):
     )
     bot.send_message(message.chat.id, welcome_text, reply_markup=main_keyboard(message.from_user.id))
 
+# أمر مباشر للوحة التحكم للأدمن فقط
+@bot.message_handler(commands=['admin'])
+def admin_panel_cmd(message):
+    if int(message.from_user.id) == ADMIN_ID:
+        send_admin_panel(message.chat.id)
+
+def send_admin_panel(chat_id):
+    admin_text = (
+        "🛠️ **دليل أوامر لوحة التحكم (للأدمن فقط)**\n\n"
+        "📥 **إضافة محتوى:** (دير رد Reply على الملف/الصورة واكتب):\n"
+        "`/add [القسم] [اسم المادة] [رقم المحاضرة]`\n\n"
+        "🗑️ **حذف محتوى:** (اكتب مباشرة):\n"
+        "`/delete [القسم] [اسم المادة] [رقم المحاضرة]`\n\n"
+        "🏷️ **اختصارات الأقسام:**\n"
+        "• `wrt` = تسجيلات مكتوبة\n"
+        "• `aud` = تسجيلات صوتية\n"
+        "• `sum` = ملخصي\n"
+        "• `ex` = امتحانات سابقة\n\n"
+        "📋 **أمثلة جاهزة للنسخ:**\n"
+        "📜 `/add wrt مدخل قانون 1`\n"
+        "🎙️ `/add aud مدخل قانون 1`\n"
+        "📌 `/add sum مدخل قانون 1`\n"
+        "📝 `/add ex مدخل قانون 1`"
+    )
+    bot.send_message(chat_id, admin_text, parse_mode="Markdown")
+
 @bot.message_handler(commands=['add'])
 def add_lecture(message):
-    if message.from_user.id != ADMIN_ID:
+    if int(message.from_user.id) != ADMIN_ID:
         return
     
     try:
@@ -121,7 +147,7 @@ def add_lecture(message):
 
 @bot.message_handler(commands=['delete'])
 def delete_lecture(message):
-    if message.from_user.id != ADMIN_ID:
+    if int(message.from_user.id) != ADMIN_ID:
         return
     
     try:
@@ -147,6 +173,8 @@ def delete_lecture(message):
 @bot.message_handler(func=lambda message: True)
 def handle_menu(message):
     text = message.text
+    user_id = int(message.from_user.id)
+
     if "تسجيلات مكتوبة" in text:
         bot.send_message(message.chat.id, "📚 اختر المادة:", reply_markup=subjects_keyboard("wrt"))
     elif "تسجيلات صوتية" in text:
@@ -157,25 +185,8 @@ def handle_menu(message):
         bot.send_message(message.chat.id, "📝 اختر المادة:", reply_markup=subjects_keyboard("ex"))
     elif "مجهول" in text:
         bot.send_message(message.chat.id, "https://t.me/majho1bot")
-    elif "لوحة التحكم" in text and message.from_user.id == ADMIN_ID:
-        admin_text = (
-            "🛠️ **دليل أوامر لوحة التحكم (للأدمن فقط)**\n\n"
-            "📥 **إضافة محتوى:** (دير رد Reply على الملف/الصورة واكتب):\n"
-            "`/add [القسم] [اسم المادة] [رقم المحاضرة]`\n\n"
-            "🗑️ **حذف محتوى:** (اكتب مباشرة):\n"
-            "`/delete [القسم] [اسم المادة] [رقم المحاضرة]`\n\n"
-            "🏷️ **اختصارات الأقسام:**\n"
-            "• `wrt` = تسجيلات مكتوبة\n"
-            "• `aud` = تسجيلات صوتية\n"
-            "• `sum` = ملخصي\n"
-            "• `ex` = امتحانات سابقة\n\n"
-            "📋 **أمثلة جاهزة للنسخ:**\n"
-            "📜 `/add wrt مدخل قانون 1`\n"
-            "🎙️ `/add aud مدخل قانون 1`\n"
-            "📌 `/add sum مدخل قانون 1`\n"
-            "📝 `/add ex مدخل قانون 1`"
-        )
-        bot.send_message(message.chat.id, admin_text, parse_mode="Markdown")
+    elif "لوحة التحكم" in text and user_id == ADMIN_ID:
+        send_admin_panel(message.chat.id)
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
