@@ -90,17 +90,16 @@ def send_welcome(message):
 # ---------------------------------------------------------
 @bot.message_handler(func=lambda message: True)
 def handle_menu_click(message):
-    if message.text == "🎙️ تسجِيلات صَوتِيّة":
-        bot.send_message(message.chat.id, "🎙️ **قسم التسجيلات الصوتية**\nاختر المادة المطلوبة:", parse_mode="Markdown", reply_markup=subjects_keyboard("aud"))
-    elif message.text == "📝 تسجِيلات مَكتُوبَة":
-        bot.send_message(message.chat.id, "📝 **قسم التسجيلات المكتوبة**\nاختر المادة المطلوبة:", parse_mode="Markdown", reply_markup=subjects_keyboard("wrt"))
-    elif message.text == "📌 مُلَخَّصِي":
-        bot.send_message(message.chat.id, "📌 **قسم ملخصي الخاص**\nاختر المادة المطلوبة:", parse_mode="Markdown", reply_markup=subjects_keyboard("sum"))
-    elif message.text == "📚 امتِحانات سابِقَة":
-        bot.send_message(message.chat.id, "📚 **قسم الامتحانات السابقة**\nاختر المادة المطلوبة:", parse_mode="Markdown", reply_markup=subjects_keyboard("ex"))
- elif "مجهول" in message.text:
-        markup = telebot.types.InlineKeyboardMarkup()
-        btn = telebot.types.InlineKeyboardButton("اضغط هنا للتواصل المجهول 💬", url="https://t.me/majho1bot")
+    if message.text == "📝 تسجيلات مكتوبة":
+        bot.send_message(message.chat.id, "📚 قسم التسجيلات المكتوبة", parse_mode="Markdown", reply_markup=subjects_keyboard("aud"))
+    elif message.text == "🎙️ تسجيلات صوتية":
+        bot.send_message(message.chat.id, "🎙️ قسم التسجيلات الصوتية", parse_mode="Markdown", reply_markup=subjects_keyboard("wrt"))
+    elif message.text == "📌 ملخصي":
+        bot.send_message(message.chat.id, "📌 قسم ملخصي الخاص", parse_mode="Markdown", reply_markup=subjects_keyboard("sum"))
+    elif message.text == "📚 امتحانات سابقة":
+        bot.send_message(message.chat.id, "📚 قسم الامتحانات السابقة", parse_mode="Markdown", reply_markup=subjects_keyboard("ex"))
+    elif "مجهول" in message.text:
+        bot.send_message(message.chat.id, "https://t.me/majho1bot")
         markup.add(btn)
         bot.send_message(message.chat.id, "اضغط على الزر أدناه لبدء المحادثة المجهولة:", reply_markup=markup)
         # إذا كانت أي رسالة عادية، تحول تلقائياً للآدمن كرسالة مجهولة
