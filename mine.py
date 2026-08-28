@@ -1,5 +1,8 @@
-import telebot
+import os
+import threading
 import sqlite3
+import telebot
+from flask import Flask
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = "8940117200:AAEA2wM-TAegbSPj9sy6wPY-u54qgi_hplQ"
@@ -7,6 +10,18 @@ ADMIN_ID = 8744592769
 
 bot = telebot.TeleBot(TOKEN)
 
+# --- خادم Flask لإبقاء UptimeRobot شغال ومنع خطأ 503 ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is alive!", 200
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+# --- قاعدة البيانات ---
 def init_db():
     conn = sqlite3.connect("bot_data.db")
     cursor = conn.cursor()
@@ -27,7 +42,6 @@ init_db()
 
 SUBJECTS = ["مدخل قانون", "قانون دستوري", "قانون جنائي", "قانون مدني", "قانون إداري", "قانون دولي"]
 
-# الأزرار الرئيسية
 def main_keyboard(user_id):
     markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add(
@@ -80,7 +94,6 @@ def send_welcome(message):
     )
     bot.send_message(message.chat.id, welcome_text, reply_markup=main_keyboard(message.from_user.id))
 
-# أمر مباشر للوحة التحكم للأدمن فقط
 @bot.message_handler(commands=['admin'])
 def admin_panel_cmd(message):
     if int(message.from_user.id) == ADMIN_ID:
@@ -226,4 +239,7 @@ def handle_callbacks(call):
         bot.answer_callback_query(call.id, text=f"تم إرسال المحاضرة {lec_num}")
 
 if __name__ == "__main__":
+    # تشغيل سيرفر Flask في خيط منفصل
+    threading.Thread(target=run_flask, daemon=True).start()
+    # تشغيل البوت
     bot.infinity_polling()
