@@ -4,13 +4,21 @@ import sqlite3
 import telebot
 from flask import Flask
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from google import genai
 
 TOKEN = "8940117200:AAEA2wM-TAegbSPj9sy6wPY-u54qgi_hplQ"
 ADMIN_ID = 8744592769
 
 bot = telebot.TeleBot(TOKEN)
 
-# --- خادم Flask لإبقاء UptimeRobot شغال ومنع خطأ 503 ---
+# تهيئة عميل Gemini API (يقرأ المفتاح تلقائياً من Environment Variables باسم GEMINI_API_KEY)
+gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+# قاموس لتخزين جلسات الاختبار الحالية للطلاب
+# { user_id: { "questions": [...], "current_step": 0, "gemini_file": ... } }
+user_quiz_sessions = {}
+
+# --- خادم Flask لإبقاء UptimeRobot شغال ومنع خطأ 503 على Render ---
 app = Flask(__name__)
 
 @app.route('/')
@@ -185,9 +193,14 @@ def delete_lecture(message):
 
 @bot.message_handler(func=lambda message: True)
 def handle_menu(message):
-    text = message.text
     user_id = int(message.from_user.id)
 
+    # التحقق مما إذا كان الطالب حالياً يجيب على اختبار ذكي
+    if user_id in user_quiz_sessions:
+        handle_quiz_answer(message)
+        return
+
+    text = message.text
     if "تسجيلات مكتوبة" in text:
         bot.send_message(message.chat.id, "📚 اختر المادة:", reply_markup=subjects_keyboard("wrt"))
     elif "تسجيلات صوتية" in text:
@@ -228,6 +241,7 @@ def handle_callbacks(call):
         files = cursor.fetchall()
         conn.close()
 
+        # إرسال الملفات المسجلة للقسم والمحاضرة
         for f_id, f_type in files:
             if f_type == "doc":
                 bot.send_document(call.message.chat.id, f_id)
@@ -236,10 +250,140 @@ def handle_callbacks(call):
             elif f_type == "photo":
                 bot.send_photo(call.message.chat.id, f_id)
         
+        # إضافة زر الاختبار الذكي بالذكاء الاصطناعي تحت المحاضرة فوراً
+        quiz_markup = InlineKeyboardMarkup()
+        quiz_btn = InlineKeyboardButton("🧠 اختبر نفسك في هذه المحاضرة (AI)", callback_data=f"quiz_{section}_{sub_idx}_{lec_num}")
+        quiz_markup.add(quiz_btn)
+
+        bot.send_message(
+            call.message.chat.id, 
+            f"✅ تم إرسال محتوى المحاضرة {lec_num}.\nتريد تراجع فهمك؟ اضغط على الزر أسفله للبدء في امتحان تحليلي ذكي!",
+            reply_markup=quiz_markup
+        )
         bot.answer_callback_query(call.id, text=f"تم إرسال المحاضرة {lec_num}")
 
+    elif data[0] == "quiz":
+        section = data[1]
+        sub_idx = int(data[2])
+        lec_num = int(data[3])
+        subject_name = SUBJECTS[sub_idx]
+        user_id = call.from_user.id
+
+        bot.send_message(call.message.chat.id, "⏳ جاري تحميل المحاضرة وتوليد الأسئلة الذكية عبر Gemini... يرجى الانتظار لحظات.")
+
+        conn = sqlite3.connect("bot_data.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_id, file_type FROM lecture_files WHERE section=? AND subject=? AND lecture_num=? LIMIT 1", (section, subject_name, lec_num))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            bot.send_message(call.message.chat.id, "❌ لم يتم العثور على ملفات لهذا القسم لبدء الاختبار.")
+            return
+
+        file_id, file_type = row
+
+        try:
+            # تنزيل الملف مؤقتاً
+            file_info = bot.get_file(file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            
+            ext = ".pdf" if file_type == "doc" else ".ogg" if file_type == "audio" else ".jpg"
+            local_filename = f"temp_{user_id}{ext}"
+            
+            with open(local_filename, 'wb') as new_file:
+                new_file.write(downloaded_file)
+
+            # رفع الملف لـ Gemini API
+            uploaded_file = gemini_client.files.upload(file=local_filename)
+
+            # طلب توليد الأسئلة المقالية
+            prompt = """
+            أنت أستاذ قانون ومتمكن. قم بتحليل هذا المستند/التسجيل واستخرج منه 5 أسئلة مقالية تحليليّة متوسطة إلى صعبة تقيس فهم طالب القانون.
+            أخرج النتائج فقط كقائمة مفصولة برقم كل سؤال، دون مقدمات أو إجابات.
+            """
+
+            response = gemini_client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=[uploaded_file, prompt]
+            )
+
+            raw_questions = response.text.strip().split("\n")
+            questions = [q.strip() for q in raw_questions if q.strip()]
+
+            if os.path.exists(local_filename):
+                os.remove(local_filename)
+
+            if not questions:
+                bot.send_message(call.message.chat.id, "⚠️ تعذر استخراج أسئلة من هذا الملف.")
+                return
+
+            user_quiz_sessions[user_id] = {
+                "questions": questions,
+                "current_step": 0,
+                "gemini_file": uploaded_file
+            }
+
+            bot.send_message(
+                call.message.chat.id,
+                f"🎯 **بدء الاختبار الذكي لمادة {subject_name} - محاضرة {lec_num}**\n\n"
+                f"📌 **السؤال (1/{len(questions)}):**\n{questions[0]}\n\n"
+                "✍️ اكتب إجابتك بأسلوبك ورسّلها في محادثة البوت فوراً:",
+                parse_mode="Markdown"
+            )
+
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"⚠️ حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {str(e)}")
+
+
+def handle_quiz_answer(message):
+    user_id = message.from_user.id
+    session = user_quiz_sessions[user_id]
+
+    current_idx = session["current_step"]
+    questions = session["questions"]
+    current_question = questions[current_idx]
+    student_answer = message.text
+
+    bot.send_message(message.chat.id, "🔍 جاري تقييم إجابتك وقراءتها بواسطة الذكاء الاصطناعي...")
+
+    try:
+        eval_prompt = f"""
+        السؤال القانوني: {current_question}
+        إجابة الطالب: {student_answer}
+
+        قم بتقييم إجابة الطالب بأسلوب أستاذ قانون مشجع ومحترف:
+        1. حدد التقييم (مثلاً: صحيحة، صحيحة جزئياً، أو خاطئة مع نسبة تقريبية).
+        2. وضح الأخطاء أو التكييفات القانونية التي فاتته.
+        3. قدم الإجابة النموذجية القانونية المختصرة.
+        """
+
+        eval_response = gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[session["gemini_file"], eval_prompt]
+        )
+
+        bot.send_message(message.chat.id, f"📝 **نتيجة التقييم:**\n\n{eval_response.text}", parse_mode="Markdown")
+
+        session["current_step"] += 1
+
+        if session["current_step"] < len(questions):
+            next_idx = session["current_step"]
+            next_q = questions[next_idx]
+            bot.send_message(
+                message.chat.id,
+                f"📌 **السؤال ({next_idx + 1}/{len(questions)}):**\n{next_q}\n\n"
+                "✍️ اكتب إجابتك أدناه:",
+                parse_mode="Markdown"
+            )
+        else:
+            bot.send_message(message.chat.id, "🎉 **أحسنت! أكملت جميع أسئلة هذا الاختبار.**\nيمكنك العودة للمكتبة وتصفح بقية المواد الآن.")
+            del user_quiz_sessions[user_id]
+
+    except Exception as e:
+        bot.send_message(message.chat.id, f"⚠️ حدث خطأ أثناء التقييم: {str(e)}")
+
+
 if __name__ == "__main__":
-    # تشغيل سيرفر Flask في خيط منفصل
     threading.Thread(target=run_flask, daemon=True).start()
-    # تشغيل البوت
     bot.infinity_polling()
