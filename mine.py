@@ -11,11 +11,10 @@ ADMIN_ID = 8744592769
 
 bot = telebot.TeleBot(TOKEN)
 
-# تهيئة عميل Gemini API (يقرأ المفتاح تلقائياً من Environment Variables باسم GEMINI_API_KEY)
+# تهيئة عميل Gemini API
 gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 # قاموس لتخزين جلسات الاختبار الحالية للطلاب
-# { user_id: { "questions": [...], "current_step": 0, "gemini_file": ... } }
 user_quiz_sessions = {}
 
 # --- خادم Flask لإبقاء UptimeRobot شغال ومنع خطأ 503 على Render ---
@@ -133,10 +132,13 @@ def add_lecture(message):
         return
     
     try:
-        parts = message.text.split(maxsplit=3)
-        section = parts[1]
-        subject = parts[2]
-        lec_num = int(parts[3])
+        # قراءة النص كاملاً بعد الأمر /add
+        text_without_cmd = message.text.strip().split(maxsplit=1)[1]
+        parts = text_without_cmd.split()
+        
+        section = parts[0]           # wrt, aud, sum, ex
+        lec_num = int(parts[-1])      # الكلمة الأخيرة هي دائماً رقم المحاضرة
+        subject = " ".join(parts[1:-1]) # الكلمات التي في الوسط هي اسم المادة (سواء كلمة أو كلمتين)
 
         file_id = None
         file_type = None
@@ -160,7 +162,7 @@ def add_lecture(message):
                            (section, subject, lec_num, file_id, file_type))
             conn.commit()
             conn.close()
-            bot.reply_to(message, f"✅ تم حفظ المحاضرة {lec_num} لمادة {subject} بنجاح!")
+            bot.reply_to(message, f"✅ تم حفظ المحاضرة {lec_num} لمادة [{subject}] بنجاح!")
         else:
             bot.reply_to(message, "❌ يرجى الرد على ملف، تسجيل صوتي، أو صورة مع الأمر.")
     except Exception as e:
@@ -172,10 +174,12 @@ def delete_lecture(message):
         return
     
     try:
-        parts = message.text.split(maxsplit=3)
-        section = parts[1]
-        subject = parts[2]
-        lec_num = int(parts[3])
+        text_without_cmd = message.text.strip().split(maxsplit=1)[1]
+        parts = text_without_cmd.split()
+        
+        section = parts[0]
+        lec_num = int(parts[-1])
+        subject = " ".join(parts[1:-1])
 
         conn = sqlite3.connect("bot_data.db")
         cursor = conn.cursor()
@@ -185,7 +189,7 @@ def delete_lecture(message):
         conn.close()
 
         if deleted_count > 0:
-            bot.reply_to(message, f"🗑️ تم حذف المحاضرة {lec_num} لمادة {subject} بنجاح!")
+            bot.reply_to(message, f"🗑️ تم حذف المحاضرة {lec_num} لمادة [{subject}] بنجاح!")
         else:
             bot.reply_to(message, "❌ لم يتم العثور على هذه المحاضرة.")
     except Exception as e:
@@ -195,7 +199,6 @@ def delete_lecture(message):
 def handle_menu(message):
     user_id = int(message.from_user.id)
 
-    # التحقق مما إذا كان الطالب حالياً يجيب على اختبار ذكي
     if user_id in user_quiz_sessions:
         handle_quiz_answer(message)
         return
@@ -241,7 +244,6 @@ def handle_callbacks(call):
         files = cursor.fetchall()
         conn.close()
 
-        # إرسال الملفات المسجلة للقسم والمحاضرة
         for f_id, f_type in files:
             if f_type == "doc":
                 bot.send_document(call.message.chat.id, f_id)
@@ -250,7 +252,6 @@ def handle_callbacks(call):
             elif f_type == "photo":
                 bot.send_photo(call.message.chat.id, f_id)
         
-        # إضافة زر الاختبار الذكي بالذكاء الاصطناعي تحت المحاضرة فوراً
         quiz_markup = InlineKeyboardMarkup()
         quiz_btn = InlineKeyboardButton("🧠 اختبر نفسك في هذه المحاضرة (AI)", callback_data=f"quiz_{section}_{sub_idx}_{lec_num}")
         quiz_markup.add(quiz_btn)
@@ -284,7 +285,6 @@ def handle_callbacks(call):
         file_id, file_type = row
 
         try:
-            # تنزيل الملف مؤقتاً
             file_info = bot.get_file(file_id)
             downloaded_file = bot.download_file(file_info.file_path)
             
@@ -294,10 +294,8 @@ def handle_callbacks(call):
             with open(local_filename, 'wb') as new_file:
                 new_file.write(downloaded_file)
 
-            # رفع الملف لـ Gemini API
             uploaded_file = gemini_client.files.upload(file=local_filename)
 
-            # طلب توليد الأسئلة المقالية
             prompt = """
             أنت أستاذ قانون ومتمكن. قم بتحليل هذا المستند/التسجيل واستخرج منه 5 أسئلة مقالية تحليليّة متوسطة إلى صعبة تقيس فهم طالب القانون.
             أخرج النتائج فقط كقائمة مفصولة برقم كل سؤال، دون مقدمات أو إجابات.
