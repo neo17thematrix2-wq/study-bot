@@ -14,7 +14,6 @@ bot = telebot.TeleBot(TOKEN)
 # تهيئة عميل Gemini API
 gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
-# قاموس لتخزين جلسات الاختبار الحالية للطلاب
 user_quiz_sessions = {}
 
 # --- خادم Flask لإبقاء UptimeRobot شغال ومنع خطأ 503 على Render ---
@@ -49,6 +48,11 @@ init_db()
 
 SUBJECTS = ["مدخل قانون", "قانون دستوري", "قانون جنائي", "قانون مدني", "قانون إداري", "قانون دولي"]
 
+def normalize_text(text):
+    """توحيد النصوص لتفادي مشاكل ترتيب الكلمات مثل (مدخل قانون / قانون مدخل)"""
+    words = text.strip().split()
+    return " ".join(sorted(words))
+
 def main_keyboard(user_id):
     markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     markup.add(
@@ -74,17 +78,27 @@ def subjects_keyboard(section_prefix):
 
 def lectures_keyboard(section, subject_index):
     subject_name = SUBJECTS[subject_index]
+    norm_subject = normalize_text(subject_name)
+    
     conn = sqlite3.connect("bot_data.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT lecture_num FROM lecture_files WHERE section=? AND subject=? ORDER BY lecture_num ASC", (section, subject_name))
+    cursor.execute("SELECT DISTINCT subject, lecture_num FROM lecture_files WHERE section=?", (section,))
     rows = cursor.fetchall()
     conn.close()
 
+    # تجميع رقم المحاضرات المتطابقة مع اسم المادة بغض النظر عن ترتيب كلماتها
+    lecture_nums = set()
+    for db_sub, lec_num in rows:
+        if normalize_text(db_sub) == norm_subject:
+            lecture_nums.add(lec_num)
+
+    sorted_lecs = sorted(list(lecture_nums))
+
     markup = InlineKeyboardMarkup(row_width=2)
-    if not rows:
+    if not sorted_lecs:
         markup.add(InlineKeyboardButton("❌ لا توجد محاضرات مرفوعة حالياً", callback_data="empty"))
     else:
-        buttons = [InlineKeyboardButton(f"محاضرة {r[0]}", callback_data=f"lec_{section}_{subject_index}_{r[0]}") for r in rows]
+        buttons = [InlineKeyboardButton(f"محاضرة {l_num}", callback_data=f"lec_{section}_{subject_index}_{l_num}") for l_num in sorted_lecs]
         for i in range(0, len(buttons), 2):
             if i + 1 < len(buttons):
                 markup.row(buttons[i], buttons[i+1])
@@ -132,13 +146,12 @@ def add_lecture(message):
         return
     
     try:
-        # قراءة النص كاملاً بعد الأمر /add
         text_without_cmd = message.text.strip().split(maxsplit=1)[1]
         parts = text_without_cmd.split()
         
-        section = parts[0]           # wrt, aud, sum, ex
-        lec_num = int(parts[-1])      # الكلمة الأخيرة هي دائماً رقم المحاضرة
-        subject = " ".join(parts[1:-1]) # الكلمات التي في الوسط هي اسم المادة (سواء كلمة أو كلمتين)
+        section = parts[0]
+        lec_num = int(parts[-1])
+        subject = " ".join(parts[1:-1])
 
         file_id = None
         file_type = None
@@ -180,11 +193,20 @@ def delete_lecture(message):
         section = parts[0]
         lec_num = int(parts[-1])
         subject = " ".join(parts[1:-1])
+        norm_subject = normalize_text(subject)
 
         conn = sqlite3.connect("bot_data.db")
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM lecture_files WHERE section=? AND subject=? AND lecture_num=?", (section, subject, lec_num))
-        deleted_count = cursor.rowcount
+        
+        cursor.execute("SELECT id, subject FROM lecture_files WHERE section=? AND lecture_num=?", (section, lec_num))
+        rows = cursor.fetchall()
+        
+        deleted_count = 0
+        for row_id, db_sub in rows:
+            if normalize_text(db_sub) == norm_subject:
+                cursor.execute("DELETE FROM lecture_files WHERE id=?", (row_id,))
+                deleted_count += 1
+                
         conn.commit()
         conn.close()
 
@@ -237,12 +259,15 @@ def handle_callbacks(call):
         sub_idx = int(data[2])
         lec_num = int(data[3])
         subject_name = SUBJECTS[sub_idx]
+        norm_subject = normalize_text(subject_name)
 
         conn = sqlite3.connect("bot_data.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT file_id, file_type FROM lecture_files WHERE section=? AND subject=? AND lecture_num=?", (section, subject_name, lec_num))
-        files = cursor.fetchall()
+        cursor.execute("SELECT file_id, file_type, subject FROM lecture_files WHERE section=? AND lecture_num=?", (section, lec_num))
+        rows = cursor.fetchall()
         conn.close()
+
+        files = [(f_id, f_type) for f_id, f_type, db_sub in rows if normalize_text(db_sub) == norm_subject]
 
         for f_id, f_type in files:
             if f_type == "doc":
@@ -268,21 +293,24 @@ def handle_callbacks(call):
         sub_idx = int(data[2])
         lec_num = int(data[3])
         subject_name = SUBJECTS[sub_idx]
+        norm_subject = normalize_text(subject_name)
         user_id = call.from_user.id
 
         bot.send_message(call.message.chat.id, "⏳ جاري تحميل المحاضرة وتوليد الأسئلة الذكية عبر Gemini... يرجى الانتظار لحظات.")
 
         conn = sqlite3.connect("bot_data.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT file_id, file_type FROM lecture_files WHERE section=? AND subject=? AND lecture_num=? LIMIT 1", (section, subject_name, lec_num))
-        row = cursor.fetchone()
+        cursor.execute("SELECT file_id, file_type, subject FROM lecture_files WHERE section=? AND lecture_num=?", (section, lec_num))
+        rows = cursor.fetchall()
         conn.close()
 
-        if not row:
+        matching_files = [(f_id, f_type) for f_id, f_type, db_sub in rows if normalize_text(db_sub) == norm_subject]
+
+        if not matching_files:
             bot.send_message(call.message.chat.id, "❌ لم يتم العثور على ملفات لهذا القسم لبدء الاختبار.")
             return
 
-        file_id, file_type = row
+        file_id, file_type = matching_files[0]
 
         try:
             file_info = bot.get_file(file_id)
