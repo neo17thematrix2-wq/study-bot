@@ -51,14 +51,12 @@ init_db()
 SUBJECTS = ["مدخل قانون", "قانون دستوري", "قانون جنائي", "قانون مدني", "قانون إداري", "قانون دولي"]
 
 SECTION_MAP = {
-    "مكتوب": "wrt",
-    "كتابه": "wrt",
-    "تفريغ": "wrt",
+    "شيت": "sheet",
+    "شيتات": "sheet",
     "صوت": "aud",
     "صوتي": "aud",
     "تسجيل": "aud",
-    "ملخص": "sum",
-    "ملخصي": "sum",
+    "تسجيلات": "aud",
     "امتحان": "ex",
     "امتحانات": "ex"
 }
@@ -98,9 +96,8 @@ def parse_arabic_command(text):
 
 def main_keyboard(user_id):
     buttons = [
-        [KeyboardButton("تسجيلات مكتوبة"), KeyboardButton("تسجيلات صوتية")],
-        [KeyboardButton("ملخصي"), KeyboardButton("امتحانات سابقة")],
-        [KeyboardButton("تواصل معي (مجهول)")]
+        [KeyboardButton("الشيتات 📚"), KeyboardButton("التسجيلات الصوتية 🎙️")],
+        [KeyboardButton("امتحانات سابقة 📝"), KeyboardButton("تواصل معي (مجهول)")]
     ]
     if int(user_id) == ADMIN_ID:
         buttons.append([KeyboardButton("لوحة التحكم ⚙️")])
@@ -133,7 +130,7 @@ def lectures_keyboard(section, subject_index):
     sorted_lecs = sorted(list(lecture_nums))
 
     if not sorted_lecs:
-        return InlineKeyboardMarkup([[InlineKeyboardButton("❌ لا توجد محاضرات مرفوعة حالياً", callback_data="empty")]])
+        return InlineKeyboardMarkup([[InlineKeyboardButton("❌ لا توجد ملفات مرفوعة لهذه المادة حالياً", callback_data="empty")]])
     
     buttons = []
     for i in range(0, len(sorted_lecs), 2):
@@ -146,41 +143,33 @@ def lectures_keyboard(section, subject_index):
 @app_bot.on_message(filters.command("start"))
 async def send_welcome(client, message):
     welcome_text = (
-        "أهلا وسهلا بك في بوت المكتبة الدراسية 🎓\n\n"
-        "طريق النجاح يبدأ بخطوة، ونحن هنا لنكون معك في كل خطوة 📚⚡\n\n"
-        "يرجى اختيار القسم الذي تود الاطلاع عليه أدناه 👇"
+        "أهلاً بك في بوت المكتبة الدراسية لقسم القانون 🎓📚\n\n"
+        "يمكنك تصفح الشيتات، التسجيلات الصوتية، والامتحانات السابقة عبر الأزرار أدناه 👇"
     )
     await message.reply_text(welcome_text, reply_markup=main_keyboard(message.from_user.id))
 
-# زر لوحة التحكم للمشرف - إرسال أوامر قابلة للنسخ بنقرة واحدة
 @app_bot.on_message(filters.text & filters.user(ADMIN_ID) & filters.regex(r"لوحة التحكم ⚙️"))
 async def admin_panel(client, message):
     panel_text = (
-        "🛠️ **لوحة التحكم (اضغط على أي أمر لنسخه فوراً):**\n\n"
-        "📥 **أوامر الإضافة (دير رد Reply على الملف أو الصوت سواء من نقالك أو تحويل):**\n"
-        "`اضف مكتوب مدخل قانون 1`\n"
-        "`اضف صوت مدخل قانون 1`\n"
-        "`اضف ملخص مدخل قانون 1`\n"
+        "🛠️ **لوحة التحكم (خاصة بالمشرف):**\n\n"
+        "📥 **أوامر الإضافة (دير Reply على الملف أو الصوت):**\n"
+        "`اضف شيت مدخل قانون 1`\n"
+        "`اضف تسجيل مدخل قانون 1`\n"
         "`اضف امتحان مدخل قانون 1`\n\n"
-        "🗑️ **أوامر الحذف (ارسلها مباشرة):**\n"
-        "`احذف مكتوب مدخل قانون 1`\n"
-        "`احذف صوت مدخل قانون 1`\n"
-        "`احذف ملخص مدخل قانون 1`\n"
+        "🗑️ **أوامر الحذف:**\n"
+        "`احذف شيت مدخل قانون 1`\n"
+        "`احذف تسجيل مدخل قانون 1`\n"
         "`احذف امتحان مدخل قانون 1`"
     )
     await message.reply_text(panel_text, parse_mode="markdown")
 
-# أمر الإضافة بالعربي (يقبل الملفات سواء من الهاتف أو محولة Forward)
 @app_bot.on_message(filters.text & filters.user(ADMIN_ID) & filters.regex(r"^اضف"))
 async def add_lecture(client, message):
     try:
         section, subject, lec_num = parse_arabic_command(message.text)
 
         if not section or not subject or lec_num is None:
-            await message.reply_text(
-                "⚠️ اكتب الأمر بالصيغة الصحيحة:\n`اضف مكتوب مدخل قانون 1`", 
-                parse_mode="markdown"
-            )
+            await message.reply_text("⚠️ الصيغة الصحيحة للإضافة:\n`اضف شيت مدخل قانون 1`", parse_mode="markdown")
             return
 
         file_id = None
@@ -211,17 +200,13 @@ async def add_lecture(client, message):
     except Exception as e:
         await message.reply_text(f"⚠️ حدث خطأ: {str(e)}")
 
-# أمر الحذف بالعربي
 @app_bot.on_message(filters.text & filters.user(ADMIN_ID) & filters.regex(r"^احذف"))
 async def delete_lecture(client, message):
     try:
         section, subject, lec_num = parse_arabic_command(message.text)
 
         if not section or not subject or lec_num is None:
-            await message.reply_text(
-                "⚠️ اكتب أمر الحذف بالصيغة الصحيحة:\n`احذف مكتوب مدخل قانون 1`", 
-                parse_mode="markdown"
-            )
+            await message.reply_text("⚠️ الصيغة الصحيحة للحذف:\n`احذف شيت مدخل قانون 1`", parse_mode="markdown")
             return
 
         norm_subject = normalize_text(subject)
@@ -243,7 +228,7 @@ async def delete_lecture(client, message):
         if deleted_count > 0:
             await message.reply_text(f"🗑️ تم حذف المحاضرة {lec_num} لمادة [{subject}] بنجاح.")
         else:
-            await message.reply_text("❌ لم يتم العثور على محاضرة بهذا الاسم والرقم لحذفها.")
+            await message.reply_text("❌ لم يتم العثور على ملف بهذا الاسم والرقم للحذف.")
     except Exception as e:
         await message.reply_text(f"⚠️ حدث خطأ أثناء الحذف: {str(e)}")
 
@@ -256,14 +241,12 @@ async def handle_menu(client, message):
         return
 
     text = message.text
-    if "تسجيلات مكتوبة" in text:
-        await message.reply_text("📚 اختر المادة:", reply_markup=subjects_keyboard("wrt"))
-    elif "تسجيلات صوتية" in text:
-        await message.reply_text("🎙️ اختر المادة:", reply_markup=subjects_keyboard("aud"))
-    elif "ملخصي" in text:
-        await message.reply_text("📌 اختر المادة:", reply_markup=subjects_keyboard("sum"))
+    if "الشيتات" in text:
+        await message.reply_text("📚 اختر المادة لعرض الشيتات:", reply_markup=subjects_keyboard("sheet"))
+    elif "التسجيلات الصوتية" in text:
+        await message.reply_text("🎙️ اختر المادة لعرض التسجيلات:", reply_markup=subjects_keyboard("aud"))
     elif "امتحانات سابقة" in text:
-        await message.reply_text("📝 اختر المادة:", reply_markup=subjects_keyboard("ex"))
+        await message.reply_text("📝 اختر المادة لعرض الامتحانات السابقة:", reply_markup=subjects_keyboard("ex"))
     elif "مجهول" in text:
         await message.reply_text("https://t.me/majho1bot")
 
@@ -272,14 +255,14 @@ async def handle_callbacks(client, callback_query):
     data = callback_query.data.split("_")
     
     if data[0] == "empty":
-        await callback_query.answer("لم يتم رفع محاضرات لهذه المادة بعد.", show_alert=True)
+        await callback_query.answer("لم يتم رفع ملفات لهذه المادة بعد.", show_alert=True)
         return
 
     if data[0] == "sub":
         section = data[1]
         sub_idx = int(data[2])
         await callback_query.edit_message_text(
-            f"📖 مادة **{SUBJECTS[sub_idx]}**\nاختر المحاضرة:",
+            f"📖 مادة **{SUBJECTS[sub_idx]}**\nاختر رقم المحاضرة:",
             reply_markup=lectures_keyboard(section, sub_idx)
         )
 
@@ -306,11 +289,14 @@ async def handle_callbacks(client, callback_query):
             elif f_type == "photo":
                 await client.send_photo(callback_query.message.chat.id, f_id)
         
-        quiz_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🧠 اختبر نفسك في هذه المحاضرة (AI)", callback_data=f"quiz_{section}_{sub_idx}_{lec_num}")]])
-        await callback_query.message.reply_text(
-            f"✅ تم إرسال محتوى المحاضرة {lec_num}.\nتريد تراجع فهمك؟ اضغط على الزر أسفله للبدء في امتحان تحليلي ذكي!",
-            reply_markup=quiz_markup
-        )
+        if section == "sheet":
+            quiz_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🧠 اختبر نفسك في هذا الشيت (AI)", callback_data=f"quiz_{section}_{sub_idx}_{lec_num}")]])
+            await callback_query.message.reply_text(
+                f"✅ تم إرسال شيت المحاضرة {lec_num}.\nتريد تقيس فهمك القانوني؟ اضغط على الزر أسفله لبدء امتحان تحليلي ذكي مستمد من الشيت!",
+                reply_markup=quiz_markup
+            )
+        else:
+            await callback_query.message.reply_text(f"✅ تم إرسال محتوى المحاضرة {lec_num}.")
 
     elif data[0] == "quiz":
         section = data[1]
@@ -320,7 +306,7 @@ async def handle_callbacks(client, callback_query):
         norm_subject = normalize_text(subject_name)
         user_id = callback_query.from_user.id
 
-        await callback_query.message.reply_text("⏳ جاري تجهيز التسجيل وتحليله عبر الذكاء الاصطناعي (Gemini)... يرجى الانتظار.")
+        await callback_query.message.reply_text("⏳ جاري تحليل الشيت وتوليد الأسئلة القانونية عبر Gemini... يرجى الانتظار.")
 
         conn = sqlite3.connect("bot_data.db")
         cursor = conn.cursor()
@@ -331,19 +317,18 @@ async def handle_callbacks(client, callback_query):
         matching_files = [(f_id, f_type) for f_id, f_type, db_sub in rows if normalize_text(db_sub) == norm_subject]
 
         if not matching_files:
-            await callback_query.message.reply_text("❌ لم يتم العثور على ملفات لهذا القسم لبدء الاختبار.")
+            await callback_query.message.reply_text("❌ لم يتم العثور على الشيت لبدء الاختبار.")
             return
 
         file_id, file_type = matching_files[0]
 
         try:
-            # محاولة تحميل الملف مع تنبيه لو كان الصوت ضخماً جداً
-            local_filename = await client.download_media(file_id, file_name=f"temp_{user_id}")
+            local_filename = await client.download_media(file_id, file_name=f"temp_sheet_{user_id}")
             
             uploaded_file = gemini_client.files.upload(file=local_filename)
 
             prompt = """
-            أنت أستاذ قانون ومتمكن. قم بتحليل هذا المستند أو التسجيل واستخرج منه 5 أسئلة مقالية تحليليّة متوسطة إلى صعبة تقيس فهم طالب القانون.
+            أنت أستاذ قانون ومتمكن. قم بتحليل هذا الشيت القانوني واستخرج منه 5 أسئلة مقالية تحليليّة متوسطة إلى صعبة تقيس فهم طالب القانون.
             أخرج النتائج فقط كقائمة مفصولة برقم كل سؤال، دون مقدمات أو إجابات.
             """
 
@@ -365,21 +350,13 @@ async def handle_callbacks(client, callback_query):
             }
 
             await callback_query.message.reply_text(
-                f"🎯 **بدء الاختبار الذكي لمادة {subject_name} - محاضرة {lec_num}**\n\n"
+                f"🎯 **بدء الاختبار الذكي لشيت مادة {subject_name} - محاضرة {lec_num}**\n\n"
                 f"📌 **السؤال (1/{len(questions)}):**\n{questions[0]}\n\n"
-                "✍️ اكتب إجابتك بأسلوبك ورسّلها في محادثة البوت فوراً:"
+                "✍️ اكتب إجابتك القانونية بأسلوبك وأرسلها في المحادثة فوراً:"
             )
 
         except Exception as e:
-            error_msg = str(e)
-            if "file is too big" in error_msg.lower():
-                await callback_query.message.reply_text(
-                    "⚠️ عذراً، هذا التسجيل الصوتي حجمه كبير جداً لدرجة أن تليجرام يرفض تنزيله عبر البوت.\n\n"
-                    "💡 **الحل السريع:** قم بتقسيم هذا التسجيل الصوتي الطويل إلى جزأين (مثلاً: محاضرة 1 الجزء الأول، ومحاضرة 1 الجزء الثاني) وا-"
-                    "رفعهما كأجزاء أصغر، أو اعتمد على التفريغات المكتوبة وسيعمل الاختبار الذكي معك بسلاسة تامة!"
-                )
-            else:
-                await callback_query.message.reply_text(f"⚠️ حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {error_msg}")
+            await callback_query.message.reply_text(f"⚠️ حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {str(e)}")
 
 async def handle_quiz_answer(client, message):
     user_id = message.from_user.id
@@ -390,7 +367,7 @@ async def handle_quiz_answer(client, message):
     current_question = questions[current_idx]
     student_answer = message.text
 
-    await message.reply_text("🔍 جاري تقييم إجابتك وقراءتها بواسطة الذكاء الاصطناعي...")
+    await message.reply_text("🔍 جاري تقييم إجابتك القانونية بواسطة الذكاء الاصطناعي...")
 
     try:
         eval_prompt = f"""
@@ -399,7 +376,7 @@ async def handle_quiz_answer(client, message):
 
         قم بتقييم إجابة الطالب بأسلوب أستاذ قانون مشجع ومحترف:
         1. حدد التقييم (مثلاً: صحيحة، صحيحة جزئياً، أو خاطئة مع نسبة تقريبية).
-        2. وضح الأخطاء أو التكييفات القانونية التي فاتته.
+        2. وضح الأخطاء أو التكييفات القانونية التي فاتته بناءً على الشيت.
         3. قدم الإجابة النموذجية القانونية المختصرة.
         """
 
@@ -420,7 +397,7 @@ async def handle_quiz_answer(client, message):
                 "✍️ اكتب إجابتك أدناه:"
             )
         else:
-            await message.reply_text("🎉 **أحسنت! أكملت جميع أسئلة هذا الاختبار.**\nيمكنك العودة للمكتبة وتصفح بقية المواد الآن.")
+            await message.reply_text("🎉 **أحسنت! أكملت جميع أسئلة هذا الشيت.**\nيمكنك العودة للمكتبة وتصفح مواد أخرى.")
             del user_quiz_sessions[user_id]
 
     except Exception as e:
@@ -429,4 +406,3 @@ async def handle_quiz_answer(client, message):
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
     app_bot.run()
-    
