@@ -14,12 +14,11 @@ ADMIN_ID = 8744592769
 
 app_bot = Client("law_library_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# تهيئة عميل Gemini API
 gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 user_quiz_sessions = {}
 
-# --- خادم Flask لإبقاء UptimeRobot شغال ومنع خطأ 503 على Render ---
+# --- خادم Flask ---
 web_app = Flask(__name__)
 
 @web_app.route('/')
@@ -51,6 +50,19 @@ init_db()
 
 SUBJECTS = ["مدخل قانون", "قانون دستوري", "قانون جنائي", "قانون مدني", "قانون إداري", "قانون دولي"]
 
+SECTION_MAP = {
+    "مكتوب": "wrt",
+    "كتابه": "wrt",
+    "تفريغ": "wrt",
+    "صوت": "aud",
+    "صوتي": "aud",
+    "تسجيل": "aud",
+    "ملخص": "sum",
+    "ملخصي": "sum",
+    "امتحان": "ex",
+    "امتحانات": "ex"
+}
+
 def normalize_text(text):
     words = text.strip().split()
     clean_words = []
@@ -61,19 +73,21 @@ def normalize_text(text):
             clean_words.append(w)
     return " ".join(sorted(clean_words))
 
-def parse_add_delete_command(text_after_cmd):
-    """استخراج القسم، رقم المحاضرة، واسم المادة مرونة في الترتيب"""
-    parts = text_after_cmd.strip().split()
-    if not parts:
+def parse_arabic_command(text):
+    parts = text.strip().split()
+    if len(parts) < 4:
         return None, None, None
         
-    section = parts[0]
-    rest_parts = parts[1:]
+    sec_word = parts[1]
+    section = SECTION_MAP.get(sec_word)
+    
+    if not section:
+        return None, None, None
     
     lec_num = None
     subject_words = []
     
-    for part in rest_parts:
+    for part in parts[2:]:
         if part.isdigit() and lec_num is None:
             lec_num = int(part)
         else:
@@ -138,18 +152,35 @@ async def send_welcome(client, message):
     )
     await message.reply_text(welcome_text, reply_markup=main_keyboard(message.from_user.id))
 
-@app_bot.on_message(filters.command("add") & filters.user(ADMIN_ID))
+# زر لوحة التحكم للمشرف - إرسال أوانر قابلة للنسخ بنقرة واحدة
+@app_bot.on_message(filters.text & filters.user(ADMIN_ID) & filters.regex(r"لوحة التحكم ⚙️"))
+async def admin_panel(client, message):
+    panel_text = (
+        "🛠️ **لوحة التحكم (اضغط على أي أمر لنسخه فوراً):**\n\n"
+        "📥 **أوامر الإضافة (دير رد Reply على الملف):**\n"
+        "`اضف مكتوب مدخل قانون 1`\n"
+        "`اضف صوت مدخل قانون 1`\n"
+        "`اضف ملخص مدخل قانون 1`\n"
+        "`اضف امتحان مدخل قانون 1`\n\n"
+        "🗑️ **أوامر الحذف (ارسلها مباشرة):**\n"
+        "`احذف مكتوب مدخل قانون 1`\n"
+        "`احذف صوت مدخل قانون 1`\n"
+        "`احذف ملخص مدخل قانون 1`\n"
+        "`احذف امتحان مدخل قانون 1`"
+    )
+    await message.reply_text(panel_text, parse_mode="markdown")
+
+# أمر الإضافة بالعربي
+@app_bot.on_message(filters.text & filters.user(ADMIN_ID) & filters.regex(r"^اضف"))
 async def add_lecture(client, message):
     try:
-        cmd_parts = message.text.strip().split(maxsplit=1)
-        if len(cmd_parts) < 2:
-            await message.reply_text("⚠️ يرجى كتابة التفاصيل، مثال:\n`/add aud مدخل قانون 1`", parse_mode="markdown")
-            return
+        section, subject, lec_num = parse_arabic_command(message.text)
 
-        section, subject, lec_num = parse_add_delete_command(cmd_parts[1])
-
-        if not subject or lec_num is None:
-            await message.reply_text("⚠️ لم يتم التعرف على اسم المادة أو رقم المحاضرة بشكل صحيح.")
+        if not section or not subject or lec_num is None:
+            await message.reply_text(
+                "⚠️ اكتب الأمر بالصيغة الصحيحة:\n`اضف مكتوب مدخل قانون 1`", 
+                parse_mode="markdown"
+            )
             return
 
         file_id = None
@@ -174,11 +205,47 @@ async def add_lecture(client, message):
                            (section, subject, lec_num, file_id, file_type))
             conn.commit()
             conn.close()
-            await message.reply_text(f"✅ تم حفظ المحاضرة {lec_num} لمادة [{subject}] بنجاح!")
+            await message.reply_text(f"✅ تم حفظ المحاضرة {lec_num} بنجاح لمادة [{subject}]!")
         else:
-            await message.reply_text("❌ يرجى الرد على ملف، تسجيل صوتي، أو صورة مع الأمر.")
+            await message.reply_text("❌ يرجى الرد (Reply) على الملف أو التسجيل عند كتابة الأمر.")
     except Exception as e:
-        await message.reply_text(f"⚠️ حدث خطأ أثناء الحفظ: {str(e)}")
+        await message.reply_text(f"⚠️ حدث خطأ: {str(e)}")
+
+# أمر الحذف بالعربي
+@app_bot.on_message(filters.text & filters.user(ADMIN_ID) & filters.regex(r"^احذف"))
+async def delete_lecture(client, message):
+    try:
+        section, subject, lec_num = parse_arabic_command(message.text)
+
+        if not section or not subject or lec_num is None:
+            await message.reply_text(
+                "⚠️ اكتب أمر الحذف بالصيغة الصحيحة:\n`احذف مكتوب مدخل قانون 1`", 
+                parse_mode="markdown"
+            )
+            return
+
+        norm_subject = normalize_text(subject)
+
+        conn = sqlite3.connect("bot_data.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, subject FROM lecture_files WHERE section=? AND lecture_num=?", (section, lec_num))
+        rows = cursor.fetchall()
+
+        deleted_count = 0
+        for row_id, db_sub in rows:
+            if normalize_text(db_sub) == norm_subject:
+                cursor.execute("DELETE FROM lecture_files WHERE id=?", (row_id,))
+                deleted_count += 1
+
+        conn.commit()
+        conn.close()
+
+        if deleted_count > 0:
+            await message.reply_text(f"🗑️ تم حذف المحاضرة {lec_num} لمادة [{subject}] بنجاح.")
+        else:
+            await message.reply_text("❌ لم يتم العثور على محاضرة بهذا الاسم والرقم لحذفها.")
+    except Exception as e:
+        await message.reply_text(f"⚠️ حدث خطأ أثناء الحذف: {str(e)}")
 
 @app_bot.on_message(filters.text)
 async def handle_menu(client, message):
