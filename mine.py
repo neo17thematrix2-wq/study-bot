@@ -152,12 +152,12 @@ async def send_welcome(client, message):
     )
     await message.reply_text(welcome_text, reply_markup=main_keyboard(message.from_user.id))
 
-# زر لوحة التحكم للمشرف - إرسال أوانر قابلة للنسخ بنقرة واحدة
+# زر لوحة التحكم للمشرف - إرسال أوامر قابلة للنسخ بنقرة واحدة
 @app_bot.on_message(filters.text & filters.user(ADMIN_ID) & filters.regex(r"لوحة التحكم ⚙️"))
 async def admin_panel(client, message):
     panel_text = (
         "🛠️ **لوحة التحكم (اضغط على أي أمر لنسخه فوراً):**\n\n"
-        "📥 **أوامر الإضافة (دير رد Reply على الملف):**\n"
+        "📥 **أوامر الإضافة (دير رد Reply على الملف أو الصوت سواء من نقالك أو تحويل):**\n"
         "`اضف مكتوب مدخل قانون 1`\n"
         "`اضف صوت مدخل قانون 1`\n"
         "`اضف ملخص مدخل قانون 1`\n"
@@ -170,7 +170,7 @@ async def admin_panel(client, message):
     )
     await message.reply_text(panel_text, parse_mode="markdown")
 
-# أمر الإضافة بالعربي
+# أمر الإضافة بالعربي (يقبل الملفات سواء من الهاتف أو محولة Forward)
 @app_bot.on_message(filters.text & filters.user(ADMIN_ID) & filters.regex(r"^اضف"))
 async def add_lecture(client, message):
     try:
@@ -320,7 +320,7 @@ async def handle_callbacks(client, callback_query):
         norm_subject = normalize_text(subject_name)
         user_id = callback_query.from_user.id
 
-        await callback_query.message.reply_text("⏳ جاري تنزيل المحاضرة الصوتية/الملف مهما كان حجمه وتوليد الأسئلة الذكية عبر Gemini... يرجى الانتظار.")
+        await callback_query.message.reply_text("⏳ جاري تجهيز التسجيل وتحليله عبر الذكاء الاصطناعي (Gemini)... يرجى الانتظار.")
 
         conn = sqlite3.connect("bot_data.db")
         cursor = conn.cursor()
@@ -337,12 +337,13 @@ async def handle_callbacks(client, callback_query):
         file_id, file_type = matching_files[0]
 
         try:
+            # محاولة تحميل الملف مع تنبيه لو كان الصوت ضخماً جداً
             local_filename = await client.download_media(file_id, file_name=f"temp_{user_id}")
             
             uploaded_file = gemini_client.files.upload(file=local_filename)
 
             prompt = """
-            أنت أستاذ قانون ومتمكن. قم بتحليل هذا المستند/التسجيل واستخرج منه 5 أسئلة مقالية تحليليّة متوسطة إلى صعبة تقيس فهم طالب القانون.
+            أنت أستاذ قانون ومتمكن. قم بتحليل هذا المستند أو التسجيل واستخرج منه 5 أسئلة مقالية تحليليّة متوسطة إلى صعبة تقيس فهم طالب القانون.
             أخرج النتائج فقط كقائمة مفصولة برقم كل سؤال، دون مقدمات أو إجابات.
             """
 
@@ -370,7 +371,15 @@ async def handle_callbacks(client, callback_query):
             )
 
         except Exception as e:
-            await callback_query.message.reply_text(f"⚠️ حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {str(e)}")
+            error_msg = str(e)
+            if "file is too big" in error_msg.lower():
+                await callback_query.message.reply_text(
+                    "⚠️ عذراً، هذا التسجيل الصوتي حجمه كبير جداً لدرجة أن تليجرام يرفض تنزيله عبر البوت.\n\n"
+                    "💡 **الحل السريع:** قم بتقسيم هذا التسجيل الصوتي الطويل إلى جزأين (مثلاً: محاضرة 1 الجزء الأول، ومحاضرة 1 الجزء الثاني) وا-"
+                    "رفعهما كأجزاء أصغر، أو اعتمد على التفريغات المكتوبة وسيعمل الاختبار الذكي معك بسلاسة تامة!"
+                )
+            else:
+                await callback_query.message.reply_text(f"⚠️ حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {error_msg}")
 
 async def handle_quiz_answer(client, message):
     user_id = message.from_user.id
@@ -420,3 +429,4 @@ async def handle_quiz_answer(client, message):
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
     app_bot.run()
+    
