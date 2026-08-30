@@ -57,6 +57,8 @@ SECTION_MAP = {
     "صوتي": "aud",
     "تسجيل": "aud",
     "تسجيلات": "aud",
+    "ملخص": "summary",
+    "ملخصي": "summary",
     "امتحان": "ex",
     "امتحانات": "ex"
 }
@@ -96,8 +98,9 @@ def parse_arabic_command(text):
 
 def main_keyboard(user_id):
     buttons = [
-        [KeyboardButton("الشيتات 📚"), KeyboardButton("التسجيلات الصوتية 🎙️")],
-        [KeyboardButton("امتحانات سابقة 📝"), KeyboardButton("تواصل معي (مجهول)")]
+        [KeyboardButton("تسجيلات صوتية"), KeyboardButton("شيتات")],
+        [KeyboardButton("ملخصي"), KeyboardButton("امتحانات سابقة")],
+        [KeyboardButton("تواصل معي (مجهول)")]
     ]
     if int(user_id) == ADMIN_ID:
         buttons.append([KeyboardButton("لوحة التحكم ⚙️")])
@@ -144,7 +147,7 @@ def lectures_keyboard(section, subject_index):
 async def send_welcome(client, message):
     welcome_text = (
         "أهلاً بك في بوت المكتبة الدراسية لقسم القانون 🎓📚\n\n"
-        "يمكنك تصفح الشيتات، التسجيلات الصوتية، والامتحانات السابقة عبر الأزرار أدناه 👇"
+        "اختر القسم المطلوب من الأزرار أدناه للتصفح داخل المواد 👇"
     )
     await message.reply_text(welcome_text, reply_markup=main_keyboard(message.from_user.id))
 
@@ -152,14 +155,11 @@ async def send_welcome(client, message):
 async def admin_panel(client, message):
     panel_text = (
         "🛠️ **لوحة التحكم (خاصة بالمشرف):**\n\n"
-        "📥 **أوامر الإضافة (دير Reply على الملف أو الصوت):**\n"
+        "📥 **أوامر الإضافة (دير Reply على الملف):**\n"
         "`اضف شيت مدخل قانون 1`\n"
         "`اضف تسجيل مدخل قانون 1`\n"
-        "`اضف امتحان مدخل قانون 1`\n\n"
-        "🗑️ **أوامر الحذف:**\n"
-        "`احذف شيت مدخل قانون 1`\n"
-        "`احذف تسجيل مدخل قانون 1`\n"
-        "`احذف امتحان مدخل قانون 1`"
+        "`اضف ملخص مدخل قانون 1`\n"
+        "`اضف امتحان مدخل قانون 1`"
     )
     await message.reply_text(panel_text, parse_mode="markdown")
 
@@ -241,12 +241,14 @@ async def handle_menu(client, message):
         return
 
     text = message.text
-    if "الشيتات" in text:
-        await message.reply_text("📚 اختر المادة لعرض الشيتات:", reply_markup=subjects_keyboard("sheet"))
-    elif "التسجيلات الصوتية" in text:
-        await message.reply_text("🎙️ اختر المادة لعرض التسجيلات:", reply_markup=subjects_keyboard("aud"))
+    if "تسجيلات صوتية" in text:
+        await message.reply_text("🎙️ اختر المادة المطلوبة للتسجيلات الصوتية:", reply_markup=subjects_keyboard("aud"))
+    elif "شيتات" in text:
+        await message.reply_text("📚 اختر المادة المطلوبة لعرض الشيتات الخاصة بها:", reply_markup=subjects_keyboard("sheet"))
+    elif "ملخصي" in text:
+        await message.reply_text("📖 اختر المادة المطلوبة للملخصات:", reply_markup=subjects_keyboard("summary"))
     elif "امتحانات سابقة" in text:
-        await message.reply_text("📝 اختر المادة لعرض الامتحانات السابقة:", reply_markup=subjects_keyboard("ex"))
+        await message.reply_text("📝 اختر المادة المطلوبة للامتحانات السابقة:", reply_markup=subjects_keyboard("ex"))
     elif "مجهول" in text:
         await message.reply_text("https://t.me/majho1bot")
 
@@ -258,6 +260,7 @@ async def handle_callbacks(client, callback_query):
         await callback_query.answer("لم يتم رفع ملفات لهذه المادة بعد.", show_alert=True)
         return
 
+    # عند اختيار المادة، تظهر قائمة أزرار المحاضرات (1، 2، إلخ)
     if data[0] == "sub":
         section = data[1]
         sub_idx = int(data[2])
@@ -289,10 +292,11 @@ async def handle_callbacks(client, callback_query):
             elif f_type == "photo":
                 await client.send_photo(callback_query.message.chat.id, f_id)
         
+        # الذكاء الاصطناعي للشيتات فقط عند اختيار رقم المحاضرة
         if section == "sheet":
             quiz_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🧠 اختبر نفسك في هذا الشيت (AI)", callback_data=f"quiz_{section}_{sub_idx}_{lec_num}")]])
             await callback_query.message.reply_text(
-                f"✅ تم إرسال شيت المحاضرة {lec_num}.\nتريد تقيس فهمك القانوني؟ اضغط على الزر أسفله لبدء امتحان تحليلي ذكي مستمد من الشيت!",
+                f"✅ تم إرسال شيت المحاضرة {lec_num} لمادة {subject_name}.\nتريد تقيس فهمك القانوني؟ اضغط على الزر أسفله لبدء امتحان تحليلي ذكي مستمد من الشيت!",
                 reply_markup=quiz_markup
             )
         else:
