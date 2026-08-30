@@ -1,15 +1,18 @@
 import os
 import threading
 import sqlite3
-import telebot
 from flask import Flask
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram import Client, filters
+from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from google import genai
 
-TOKEN = "8940117200:AAEA2wM-TAegbSPj9sy6wPY-u54qgi_hplQ"
+# --- البيانات الخاصة بالبوت ---
+API_ID = 39769241
+API_HASH = "7006f661e91dfbee21acce80eb57935e"
+BOT_TOKEN = "8940117200:AAEA2wM-TAegbSPj9sy6wPY-u54qgi_hplQ"
 ADMIN_ID = 8744592769
 
-bot = telebot.TeleBot(TOKEN)
+app_bot = Client("law_library_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # تهيئة عميل Gemini API
 gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
@@ -17,15 +20,15 @@ gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 user_quiz_sessions = {}
 
 # --- خادم Flask لإبقاء UptimeRobot شغال ومنع خطأ 503 على Render ---
-app = Flask(__name__)
+web_app = Flask(__name__)
 
-@app.route('/')
+@web_app.route('/')
 def home():
     return "Bot is alive!", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    web_app.run(host="0.0.0.0", port=port)
 
 # --- قاعدة البيانات ---
 def init_db():
@@ -49,32 +52,50 @@ init_db()
 SUBJECTS = ["مدخل قانون", "قانون دستوري", "قانون جنائي", "قانون مدني", "قانون إداري", "قانون دولي"]
 
 def normalize_text(text):
-    """توحيد النصوص لتفادي مشاكل ترتيب الكلمات مثل (مدخل قانون / قانون مدخل)"""
     words = text.strip().split()
-    return " ".join(sorted(words))
+    clean_words = []
+    for w in words:
+        if w.startswith("ال") and len(w) > 2:
+            clean_words.append(w[2:])
+        else:
+            clean_words.append(w)
+    return " ".join(sorted(clean_words))
+
+def parse_add_delete_command(text_after_cmd):
+    parts = text_after_cmd.strip().split()
+    section = parts[0]
+    rest_parts = parts[1:]
+    
+    lec_num = None
+    subject_words = []
+    
+    for part in rest_parts:
+        if part.isdigit() and lec_num is None:
+            lec_num = int(part)
+        else:
+            subject_words.append(part)
+            
+    subject = " ".join(subject_words)
+    return section, subject, lec_num
 
 def main_keyboard(user_id):
-    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    markup.add(
-        KeyboardButton("تسجيلات مكتوبة"),
-        KeyboardButton("تسجيلات صوتية"),
-        KeyboardButton("ملخصي"),
-        KeyboardButton("امتحانات سابقة"),
-        KeyboardButton("تواصل معي (مجهول)")
-    )
+    buttons = [
+        [KeyboardButton("تسجيلات مكتوبة"), KeyboardButton("تسجيلات صوتية")],
+        [KeyboardButton("ملخصي"), KeyboardButton("امتحانات سابقة")],
+        [KeyboardButton("تواصل معي (مجهول)")]
+    ]
     if int(user_id) == ADMIN_ID:
-        markup.add(KeyboardButton("لوحة التحكم ⚙️"))
-    return markup
+        buttons.append([KeyboardButton("لوحة التحكم ⚙️")])
+    return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
 def subjects_keyboard(section_prefix):
-    markup = InlineKeyboardMarkup(row_width=2)
-    buttons = [InlineKeyboardButton(sub, callback_data=f"sub_{section_prefix}_{i}") for i, sub in enumerate(SUBJECTS)]
-    for i in range(0, len(buttons), 2):
-        if i + 1 < len(buttons):
-            markup.row(buttons[i], buttons[i+1])
-        else:
-            markup.row(buttons[i])
-    return markup
+    buttons = []
+    for i in range(0, len(SUBJECTS), 2):
+        row = [InlineKeyboardButton(SUBJECTS[i], callback_data=f"sub_{section_prefix}_{i}")]
+        if i + 1 < len(SUBJECTS):
+            row.append(InlineKeyboardButton(SUBJECTS[i+1], callback_data=f"sub_{section_prefix}_{i+1}"))
+        buttons.append(row)
+    return InlineKeyboardMarkup(buttons)
 
 def lectures_keyboard(section, subject_index):
     subject_name = SUBJECTS[subject_index]
@@ -86,7 +107,6 @@ def lectures_keyboard(section, subject_index):
     rows = cursor.fetchall()
     conn.close()
 
-    # تجميع رقم المحاضرات المتطابقة مع اسم المادة بغض النظر عن ترتيب كلماتها
     lecture_nums = set()
     for db_sub, lec_num in rows:
         if normalize_text(db_sub) == norm_subject:
@@ -94,64 +114,35 @@ def lectures_keyboard(section, subject_index):
 
     sorted_lecs = sorted(list(lecture_nums))
 
-    markup = InlineKeyboardMarkup(row_width=2)
     if not sorted_lecs:
-        markup.add(InlineKeyboardButton("❌ لا توجد محاضرات مرفوعة حالياً", callback_data="empty"))
-    else:
-        buttons = [InlineKeyboardButton(f"محاضرة {l_num}", callback_data=f"lec_{section}_{subject_index}_{l_num}") for l_num in sorted_lecs]
-        for i in range(0, len(buttons), 2):
-            if i + 1 < len(buttons):
-                markup.row(buttons[i], buttons[i+1])
-            else:
-                markup.row(buttons[i])
-    return markup
+        return InlineKeyboardMarkup([[InlineKeyboardButton("❌ لا توجد محاضرات مرفوعة حالياً", callback_data="empty")]])
+    
+    buttons = []
+    for i in range(0, len(sorted_lecs), 2):
+        row = [InlineKeyboardButton(f"محاضرة {sorted_lecs[i]}", callback_data=f"lec_{section}_{subject_index}_{sorted_lecs[i]}")]
+        if i + 1 < len(sorted_lecs):
+            row.append(InlineKeyboardButton(f"محاضرة {sorted_lecs[i+1]}", callback_data=f"lec_{section}_{subject_index}_{sorted_lecs[i+1]}"))
+        buttons.append(row)
+    return InlineKeyboardMarkup(buttons)
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
+@app_bot.on_message(filters.command("start"))
+async def send_welcome(client, message):
     welcome_text = (
         "أهلا وسهلا بك في بوت المكتبة الدراسية 🎓\n\n"
         "طريق النجاح يبدأ بخطوة، ونحن هنا لنكون معك في كل خطوة 📚⚡\n\n"
         "يرجى اختيار القسم الذي تود الاطلاع عليه أدناه 👇"
     )
-    bot.send_message(message.chat.id, welcome_text, reply_markup=main_keyboard(message.from_user.id))
+    await message.reply_text(welcome_text, reply_markup=main_keyboard(message.from_user.id))
 
-@bot.message_handler(commands=['admin'])
-def admin_panel_cmd(message):
-    if int(message.from_user.id) == ADMIN_ID:
-        send_admin_panel(message.chat.id)
-
-def send_admin_panel(chat_id):
-    admin_text = (
-        "🛠️ **دليل أوامر لوحة التحكم (للأدمن فقط)**\n\n"
-        "📥 **إضافة محتوى:** (دير رد Reply على الملف/الصورة واكتب):\n"
-        "`/add [القسم] [اسم المادة] [رقم المحاضرة]`\n\n"
-        "🗑️ **حذف محتوى:** (اكتب مباشرة):\n"
-        "`/delete [القسم] [اسم المادة] [رقم المحاضرة]`\n\n"
-        "🏷️ **اختصارات الأقسام:**\n"
-        "• `wrt` = تسجيلات مكتوبة\n"
-        "• `aud` = تسجيلات صوتية\n"
-        "• `sum` = ملخصي\n"
-        "• `ex` = امتحانات سابقة\n\n"
-        "📋 **أمثلة جاهزة للنسخ:**\n"
-        "📜 `/add wrt مدخل قانون 1`\n"
-        "🎙️ `/add aud مدخل قانون 1`\n"
-        "📌 `/add sum مدخل قانون 1`\n"
-        "📝 `/add ex مدخل قانون 1`"
-    )
-    bot.send_message(chat_id, admin_text, parse_mode="Markdown")
-
-@bot.message_handler(commands=['add'])
-def add_lecture(message):
-    if int(message.from_user.id) != ADMIN_ID:
-        return
-    
+@app_bot.on_message(filters.command("add") & filters.user(ADMIN_ID))
+async def add_lecture(client, message):
     try:
         text_without_cmd = message.text.strip().split(maxsplit=1)[1]
-        parts = text_without_cmd.split()
-        
-        section = parts[0]
-        lec_num = int(parts[-1])
-        subject = " ".join(parts[1:-1])
+        section, subject, lec_num = parse_add_delete_command(text_without_cmd)
+
+        if not subject or lec_num is None:
+            await message.reply_text("⚠️ يرجى كتابة اسم المادة ورقم المحاضرة بشكل صحيح.")
+            return
 
         file_id = None
         file_type = None
@@ -165,7 +156,7 @@ def add_lecture(message):
                 file_id = (target.audio or target.voice).file_id
                 file_type = "audio"
             elif target.photo:
-                file_id = target.photo[-1].file_id
+                file_id = target.photo.file_id
                 file_type = "photo"
 
         if file_id:
@@ -175,84 +166,47 @@ def add_lecture(message):
                            (section, subject, lec_num, file_id, file_type))
             conn.commit()
             conn.close()
-            bot.reply_to(message, f"✅ تم حفظ المحاضرة {lec_num} لمادة [{subject}] بنجاح!")
+            await message.reply_text(f"✅ تم حفظ المحاضرة {lec_num} لمادة [{subject}] بنجاح!")
         else:
-            bot.reply_to(message, "❌ يرجى الرد على ملف، تسجيل صوتي، أو صورة مع الأمر.")
-    except Exception as e:
-        bot.reply_to(message, "⚠️ صيغة الأمر خطأ!\nدير رد على الملف/الصورة واكتب:\n`/add wrt مدخل قانون 1`", parse_mode="Markdown")
+            await message.reply_text("❌ يرجى الرد على ملف، تسجيل صوتي، أو صورة مع الأمر.")
+    except Exception:
+        await message.reply_text("⚠️ صيغة الأمر خطأ!\nدير رد على الملف/الصورة واكتب:\n`/add wrt مدخل قانون 1`")
 
-@bot.message_handler(commands=['delete'])
-def delete_lecture(message):
-    if int(message.from_user.id) != ADMIN_ID:
-        return
-    
-    try:
-        text_without_cmd = message.text.strip().split(maxsplit=1)[1]
-        parts = text_without_cmd.split()
-        
-        section = parts[0]
-        lec_num = int(parts[-1])
-        subject = " ".join(parts[1:-1])
-        norm_subject = normalize_text(subject)
-
-        conn = sqlite3.connect("bot_data.db")
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT id, subject FROM lecture_files WHERE section=? AND lecture_num=?", (section, lec_num))
-        rows = cursor.fetchall()
-        
-        deleted_count = 0
-        for row_id, db_sub in rows:
-            if normalize_text(db_sub) == norm_subject:
-                cursor.execute("DELETE FROM lecture_files WHERE id=?", (row_id,))
-                deleted_count += 1
-                
-        conn.commit()
-        conn.close()
-
-        if deleted_count > 0:
-            bot.reply_to(message, f"🗑️ تم حذف المحاضرة {lec_num} لمادة [{subject}] بنجاح!")
-        else:
-            bot.reply_to(message, "❌ لم يتم العثور على هذه المحاضرة.")
-    except Exception as e:
-        bot.reply_to(message, "⚠️ صيغة الأمر خطأ!\nاكتب الأمر بهذا الشكل:\n`/delete wrt مدخل قانون 1`", parse_mode="Markdown")
-
-@bot.message_handler(func=lambda message: True)
-def handle_menu(message):
-    user_id = int(message.from_user.id)
+@app_bot.on_message(filters.text)
+async def handle_menu(client, message):
+    user_id = message.from_user.id
 
     if user_id in user_quiz_sessions:
-        handle_quiz_answer(message)
+        await handle_quiz_answer(client, message)
         return
 
     text = message.text
     if "تسجيلات مكتوبة" in text:
-        bot.send_message(message.chat.id, "📚 اختر المادة:", reply_markup=subjects_keyboard("wrt"))
+        await message.reply_text("📚 اختر المادة:", reply_markup=subjects_keyboard("wrt"))
     elif "تسجيلات صوتية" in text:
-        bot.send_message(message.chat.id, "🎙️ اختر المادة:", reply_markup=subjects_keyboard("aud"))
+        await message.reply_text("🎙️ اختر المادة:", reply_markup=subjects_keyboard("aud"))
     elif "ملخصي" in text:
-        bot.send_message(message.chat.id, "📌 اختر المادة:", reply_markup=subjects_keyboard("sum"))
+        await message.reply_text("📌 اختر المادة:", reply_markup=subjects_keyboard("sum"))
     elif "امتحانات سابقة" in text:
-        bot.send_message(message.chat.id, "📝 اختر المادة:", reply_markup=subjects_keyboard("ex"))
+        await message.reply_text("📝 اختر المادة:", reply_markup=subjects_keyboard("ex"))
     elif "مجهول" in text:
-        bot.send_message(message.chat.id, "https://t.me/majho1bot")
-    elif "لوحة التحكم" in text and user_id == ADMIN_ID:
-        send_admin_panel(message.chat.id)
+        await message.reply_text("https://t.me/majho1bot")
 
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callbacks(call):
-    if call.data == "empty":
-        bot.answer_callback_query(call.id, text="لم يتم رفع محاضرات لهذه المادة بعد.")
+@app_bot.on_callback_query()
+async def handle_callbacks(client, callback_query):
+    data = callback_query.data.split("_")
+    
+    if data[0] == "empty":
+        await callback_query.answer("لم يتم رفع محاضرات لهذه المادة بعد.", show_alert=True)
         return
 
-    data = call.data.split("_")
-    
     if data[0] == "sub":
         section = data[1]
         sub_idx = int(data[2])
-        bot.edit_message_text(f"📖 مادة **{SUBJECTS[sub_idx]}**\nاختر المحاضرة:", 
-                              call.message.chat.id, call.message.message_id, 
-                              parse_mode="Markdown", reply_markup=lectures_keyboard(section, sub_idx))
+        await callback_query.edit_message_text(
+            f"📖 مادة **{SUBJECTS[sub_idx]}**\nاختر المحاضرة:",
+            reply_markup=lectures_keyboard(section, sub_idx)
+        )
 
     elif data[0] == "lec":
         section = data[1]
@@ -271,22 +225,17 @@ def handle_callbacks(call):
 
         for f_id, f_type in files:
             if f_type == "doc":
-                bot.send_document(call.message.chat.id, f_id)
+                await client.send_document(callback_query.message.chat.id, f_id)
             elif f_type == "audio":
-                bot.send_audio(call.message.chat.id, f_id)
+                await client.send_audio(callback_query.message.chat.id, f_id)
             elif f_type == "photo":
-                bot.send_photo(call.message.chat.id, f_id)
+                await client.send_photo(callback_query.message.chat.id, f_id)
         
-        quiz_markup = InlineKeyboardMarkup()
-        quiz_btn = InlineKeyboardButton("🧠 اختبر نفسك في هذه المحاضرة (AI)", callback_data=f"quiz_{section}_{sub_idx}_{lec_num}")
-        quiz_markup.add(quiz_btn)
-
-        bot.send_message(
-            call.message.chat.id, 
+        quiz_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🧠 اختبر نفسك في هذه المحاضرة (AI)", callback_data=f"quiz_{section}_{sub_idx}_{lec_num}")]])
+        await callback_query.message.reply_text(
             f"✅ تم إرسال محتوى المحاضرة {lec_num}.\nتريد تراجع فهمك؟ اضغط على الزر أسفله للبدء في امتحان تحليلي ذكي!",
             reply_markup=quiz_markup
         )
-        bot.answer_callback_query(call.id, text=f"تم إرسال المحاضرة {lec_num}")
 
     elif data[0] == "quiz":
         section = data[1]
@@ -294,9 +243,9 @@ def handle_callbacks(call):
         lec_num = int(data[3])
         subject_name = SUBJECTS[sub_idx]
         norm_subject = normalize_text(subject_name)
-        user_id = call.from_user.id
+        user_id = callback_query.from_user.id
 
-        bot.send_message(call.message.chat.id, "⏳ جاري تحميل المحاضرة وتوليد الأسئلة الذكية عبر Gemini... يرجى الانتظار لحظات.")
+        await callback_query.message.reply_text("⏳ جاري تنزيل المحاضرة الصوتية/الملف مهما كان حجمه وتوليد الأسئلة الذكية عبر Gemini... يرجى الانتظار.")
 
         conn = sqlite3.connect("bot_data.db")
         cursor = conn.cursor()
@@ -307,21 +256,14 @@ def handle_callbacks(call):
         matching_files = [(f_id, f_type) for f_id, f_type, db_sub in rows if normalize_text(db_sub) == norm_subject]
 
         if not matching_files:
-            bot.send_message(call.message.chat.id, "❌ لم يتم العثور على ملفات لهذا القسم لبدء الاختبار.")
+            await callback_query.message.reply_text("❌ لم يتم العثور على ملفات لهذا القسم لبدء الاختبار.")
             return
 
         file_id, file_type = matching_files[0]
 
         try:
-            file_info = bot.get_file(file_id)
-            downloaded_file = bot.download_file(file_info.file_path)
+            local_filename = await client.download_media(file_id, file_name=f"temp_{user_id}")
             
-            ext = ".pdf" if file_type == "doc" else ".ogg" if file_type == "audio" else ".jpg"
-            local_filename = f"temp_{user_id}{ext}"
-            
-            with open(local_filename, 'wb') as new_file:
-                new_file.write(downloaded_file)
-
             uploaded_file = gemini_client.files.upload(file=local_filename)
 
             prompt = """
@@ -340,29 +282,22 @@ def handle_callbacks(call):
             if os.path.exists(local_filename):
                 os.remove(local_filename)
 
-            if not questions:
-                bot.send_message(call.message.chat.id, "⚠️ تعذر استخراج أسئلة من هذا الملف.")
-                return
-
             user_quiz_sessions[user_id] = {
                 "questions": questions,
                 "current_step": 0,
                 "gemini_file": uploaded_file
             }
 
-            bot.send_message(
-                call.message.chat.id,
+            await callback_query.message.reply_text(
                 f"🎯 **بدء الاختبار الذكي لمادة {subject_name} - محاضرة {lec_num}**\n\n"
                 f"📌 **السؤال (1/{len(questions)}):**\n{questions[0]}\n\n"
-                "✍️ اكتب إجابتك بأسلوبك ورسّلها في محادثة البوت فوراً:",
-                parse_mode="Markdown"
+                "✍️ اكتب إجابتك بأسلوبك ورسّلها في محادثة البوت فوراً:"
             )
 
         except Exception as e:
-            bot.send_message(call.message.chat.id, f"⚠️ حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {str(e)}")
+            await callback_query.message.reply_text(f"⚠️ حدث خطأ أثناء الاتصال بالذكاء الاصطناعي: {str(e)}")
 
-
-def handle_quiz_answer(message):
+async def handle_quiz_answer(client, message):
     user_id = message.from_user.id
     session = user_quiz_sessions[user_id]
 
@@ -371,7 +306,7 @@ def handle_quiz_answer(message):
     current_question = questions[current_idx]
     student_answer = message.text
 
-    bot.send_message(message.chat.id, "🔍 جاري تقييم إجابتك وقراءتها بواسطة الذكاء الاصطناعي...")
+    await message.reply_text("🔍 جاري تقييم إجابتك وقراءتها بواسطة الذكاء الاصطناعي...")
 
     try:
         eval_prompt = f"""
@@ -389,27 +324,24 @@ def handle_quiz_answer(message):
             contents=[session["gemini_file"], eval_prompt]
         )
 
-        bot.send_message(message.chat.id, f"📝 **نتيجة التقييم:**\n\n{eval_response.text}", parse_mode="Markdown")
+        await message.reply_text(f"📝 **نتيجة التقييم:**\n\n{eval_response.text}")
 
         session["current_step"] += 1
 
         if session["current_step"] < len(questions):
             next_idx = session["current_step"]
             next_q = questions[next_idx]
-            bot.send_message(
-                message.chat.id,
+            await message.reply_text(
                 f"📌 **السؤال ({next_idx + 1}/{len(questions)}):**\n{next_q}\n\n"
-                "✍️ اكتب إجابتك أدناه:",
-                parse_mode="Markdown"
+                "✍️ اكتب إجابتك أدناه:"
             )
         else:
-            bot.send_message(message.chat.id, "🎉 **أحسنت! أكملت جميع أسئلة هذا الاختبار.**\nيمكنك العودة للمكتبة وتصفح بقية المواد الآن.")
+            await message.reply_text("🎉 **أحسنت! أكملت جميع أسئلة هذا الاختبار.**\nيمكنك العودة للمكتبة وتصفح بقية المواد الآن.")
             del user_quiz_sessions[user_id]
 
     except Exception as e:
-        bot.send_message(message.chat.id, f"⚠️ حدث خطأ أثناء التقييم: {str(e)}")
-
+        await message.reply_text(f"⚠️ حدث خطأ أثناء التقييم: {str(e)}")
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
-    bot.infinity_polling()
+    app_bot.run()
