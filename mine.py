@@ -62,7 +62,11 @@ def normalize_text(text):
     return " ".join(sorted(clean_words))
 
 def parse_add_delete_command(text_after_cmd):
+    """استخراج القسم، رقم المحاضرة، واسم المادة مرونة في الترتيب"""
     parts = text_after_cmd.strip().split()
+    if not parts:
+        return None, None, None
+        
     section = parts[0]
     rest_parts = parts[1:]
     
@@ -137,11 +141,15 @@ async def send_welcome(client, message):
 @app_bot.on_message(filters.command("add") & filters.user(ADMIN_ID))
 async def add_lecture(client, message):
     try:
-        text_without_cmd = message.text.strip().split(maxsplit=1)[1]
-        section, subject, lec_num = parse_add_delete_command(text_without_cmd)
+        cmd_parts = message.text.strip().split(maxsplit=1)
+        if len(cmd_parts) < 2:
+            await message.reply_text("⚠️ يرجى كتابة التفاصيل، مثال:\n`/add aud مدخل قانون 1`", parse_mode="markdown")
+            return
+
+        section, subject, lec_num = parse_add_delete_command(cmd_parts[1])
 
         if not subject or lec_num is None:
-            await message.reply_text("⚠️ يرجى كتابة اسم المادة ورقم المحاضرة بشكل صحيح.")
+            await message.reply_text("⚠️ لم يتم التعرف على اسم المادة أو رقم المحاضرة بشكل صحيح.")
             return
 
         file_id = None
@@ -169,8 +177,8 @@ async def add_lecture(client, message):
             await message.reply_text(f"✅ تم حفظ المحاضرة {lec_num} لمادة [{subject}] بنجاح!")
         else:
             await message.reply_text("❌ يرجى الرد على ملف، تسجيل صوتي، أو صورة مع الأمر.")
-    except Exception:
-        await message.reply_text("⚠️ صيغة الأمر خطأ!\nدير رد على الملف/الصورة واكتب:\n`/add wrt مدخل قانون 1`")
+    except Exception as e:
+        await message.reply_text(f"⚠️ حدث خطأ أثناء الحفظ: {str(e)}")
 
 @app_bot.on_message(filters.text)
 async def handle_menu(client, message):
