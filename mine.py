@@ -1,3 +1,4 @@
+تفضل، هذا هو الكود الكامل والجاهز للبوت بالترتيب والتنظيم اللي طلبتهم (الأزرار الأساسية، اختيار المواد، ثم أزرار المحاضرات 1، 2، إلخ، والذكاء الاصطناعي شغال حصرياً على الشيتات):
 import os
 import threading
 import sqlite3
@@ -155,11 +156,14 @@ async def send_welcome(client, message):
 async def admin_panel(client, message):
     panel_text = (
         "🛠️ **لوحة التحكم (خاصة بالمشرف):**\n\n"
-        "📥 **أوامر الإضافة (دير Reply على الملف):**\n"
+        "📥 **أوامر الإضافة (دير Reply على الملف أو الصوت):**\n"
         "`اضف شيت مدخل قانون 1`\n"
         "`اضف تسجيل مدخل قانون 1`\n"
         "`اضف ملخص مدخل قانون 1`\n"
-        "`اضف امتحان مدخل قانون 1`"
+        "`اضف امتحان مدخل قانون 1`\n\n"
+        "🗑️ **أوامر الحذف:**\n"
+        "`احذف شيت مدخل قانون 1`\n"
+        "`احذف تسجيل مدخل قانون 1`"
     )
     await message.reply_text(panel_text, parse_mode="markdown")
 
@@ -260,7 +264,6 @@ async def handle_callbacks(client, callback_query):
         await callback_query.answer("لم يتم رفع ملفات لهذه المادة بعد.", show_alert=True)
         return
 
-    # عند اختيار المادة، تظهر قائمة أزرار المحاضرات (1، 2، إلخ)
     if data[0] == "sub":
         section = data[1]
         sub_idx = int(data[2])
@@ -292,7 +295,6 @@ async def handle_callbacks(client, callback_query):
             elif f_type == "photo":
                 await client.send_photo(callback_query.message.chat.id, f_id)
         
-        # الذكاء الاصطناعي للشيتات فقط عند اختيار رقم المحاضرة
         if section == "sheet":
             quiz_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🧠 اختبر نفسك في هذا الشيت (AI)", callback_data=f"quiz_{section}_{sub_idx}_{lec_num}")]])
             await callback_query.message.reply_text(
@@ -410,3 +412,4 @@ async def handle_quiz_answer(client, message):
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
     app_bot.run()
+
