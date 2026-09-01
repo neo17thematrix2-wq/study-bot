@@ -1,4 +1,4 @@
 pyrogram
 tgcrypto
 aiohttp
-google-genai000
+google-genai
