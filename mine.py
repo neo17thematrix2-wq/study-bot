@@ -1,4 +1,3 @@
-تفضل، هذا هو الكود الكامل والجاهز للبوت بالترتيب والتنظيم اللي طلبتهم (الأزرار الأساسية، اختيار المواد، ثم أزرار المحاضرات 1، 2، إلخ، والذكاء الاصطناعي شغال حصرياً على الشيتات):
 import os
 import threading
 import sqlite3
@@ -10,7 +9,7 @@ from google import genai
 # --- البيانات الخاصة بالبوت ---
 API_ID = 39769241
 API_HASH = "7006f661e91dfbee21acce80eb57935e"
-BOT_TOKEN = "8940117200:AAEA2wM-TAegbSPj9sy6wPY-u54qgi_hplQ"
+BOT_TOKEN = "8940117200:AAHJYREfLAYdDPtBf9aNWYffNpM5qyZZz48"
 ADMIN_ID = 8744592769
 
 app_bot = Client("law_library_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -412,4 +411,3 @@ async def handle_quiz_answer(client, message):
 if __name__ == "__main__":
     threading.Thread(target=run_flask, daemon=True).start()
     app_bot.run()
-
