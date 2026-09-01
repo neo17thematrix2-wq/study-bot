@@ -1,6 +1,7 @@
 import os
 import threading
 import sqlite3
+import asyncio
 from flask import Flask
 from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
@@ -408,6 +409,11 @@ async def handle_quiz_answer(client, message):
     except Exception as e:
         await message.reply_text(f"⚠️ حدث خطأ أثناء التقييم: {str(e)}")
 
-if __name__ == "__main__":
+async def main():
     threading.Thread(target=run_flask, daemon=True).start()
-    app_bot.run()
+    await app_bot.start()
+    print("Bot started successfully!")
+    await asyncio.gather(*(asyncio.get_event_loop().create_future() for _ in range(1)))
+
+if __name__ == "__main__":
+    asyncio.run(main())
