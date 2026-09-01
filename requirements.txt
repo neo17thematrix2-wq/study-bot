@@ -1,4 +1,4 @@
 pyrogram
 tgcrypto
-Flask
-google-genai
+aiohttp
+google-genai000
